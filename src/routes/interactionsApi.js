@@ -66,3 +66,53 @@ interactionsApiRouter.get('/', requireAuth, async (req, res, next) => {
     next(error);
   }
 });
+
+interactionsApiRouter.get('/:id', requireAuth, async (req, res, next) => {
+    try {
+      const interaction = await prisma.interaction.findUnique({
+        where: {
+          id: req.params.id,
+        },
+        select: {
+          id: true,
+          guildId: true,
+          guildName: true,
+          userId: true,
+          username: true,
+          command: true,
+          text: true,
+          status: true,
+          receivedAt: true,
+          aiSummary: true,
+          aiTags: true,
+          actions: {
+            select: {
+              id: true,
+              kind: true,
+              status: true,
+              attempts: true,
+              lastError: true,
+              nextRetryAt: true,
+              updatedAt: true,
+            },
+            orderBy: {
+              updatedAt: 'desc',
+            },
+          },
+        },
+      });
+  
+      if (!interaction) {
+        return res.status(404).json({
+          error: {
+            code: 'interaction_not_found',
+            message: 'Interaction not found',
+          },
+        });
+      }
+  
+      return res.status(200).json(interaction);
+    } catch (error) {
+      next(error);
+    }
+  });
