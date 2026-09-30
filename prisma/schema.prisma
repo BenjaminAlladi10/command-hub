@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Neon pooler URL at runtime. Migrations need DIRECT_URL (non-pooled).
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum InteractionStatus {
+  received
+  replied
+  failed
+}
+
+enum ActionKind {
+  reply
+  mirror
+  ai
+}
+
+enum ActionStatus {
+  pending
+  success
+  failed
+  retrying
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  @@map("users")
+}
+
+model Guild {
+  guildId        String   @id
+  name           String
+  channelId      String?
+  channels       Json     @default("[]")
+  mirrorWebhook  String?
+  connectedAt    DateTime @default(now())
+  commandConfigs CommandConfig[]
+
+  @@map("guilds")
+}
+
+model CommandConfig {
+  guildId       String
+  name          String
+  enabled       Boolean  @default(true)
+  replyTemplate String   @default("")
+  mirror        Boolean  @default(false)
+  flagKeywords  String[] @default([])
+  useAiTriage   Boolean  @default(false)
+  guild         Guild    @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  @@id([guildId, name])
+  @@map("command_configs")
+}
+
+model Interaction {
+  id         String             @id
+  guildId    String
+  guildName  String
+  userId     String
+  username   String
+  command    String
+  text       String
+  status     InteractionStatus  @default(received)
+  receivedAt DateTime           @default(now())
+  aiSummary  String?
+  aiTags     String[]           @default([])
+  actions    Action[]
+
+  @@index([guildId, receivedAt])
+  @@index([command])
+  @@index([status])
+  @@map("interactions")
+}
+
+model Action {
+  id            String       @id @default(cuid())
+  interactionId String
+  kind          ActionKind
+  status        ActionStatus @default(pending)
+  attempts      Int          @default(0)
+  lastError     String?
+  nextRetryAt   DateTime?
+  updatedAt     DateTime     @updatedAt
+  interaction   Interaction  @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextRetryAt])
+  @@map("actions")
+}

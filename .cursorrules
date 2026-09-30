@@ -1,0 +1,31 @@
+You are helping build "Command Hub": a Discord bot that uses HTTP interactions (no websocket), with an Express backend and a React admin dashboard.
+
+## Tech stack (do not substitute)
+- Runtime: Node.js 20+, plain JavaScript with ES modules ("type": "module")
+- Backend: Express 4
+- Database: Neon Postgres via Prisma ORM (`@prisma/client`). Pooled `DATABASE_URL` (SSL required) for the client; `DIRECT_URL` (non-pooled) for migrations. No raw `pg` driver.
+- Discord: `discord-interactions` for Ed25519 verification and response types
+- Validation: zod
+- Logging: pino with secret redaction
+- Auth: bcrypt + jsonwebtoken, JWT stored in an HTTP-only, Secure, SameSite cookie (cookie-parser)
+- Security middleware: helmet, express-rate-limit
+- Config: dotenv, validated at startup
+- Frontend (in /client, built separately): React + Vite + TypeScript + TanStack Query
+- Hosting: Render (Express also serves the built React app). Everything must run on free tiers, no credit card.
+
+## Repo layout
+/server  Express API, interactions endpoint, retry worker
+/client  React dashboard
+/docs    api-contract.md (source of truth for API shapes)
+
+## Non-negotiable rules
+- Verify the Discord Ed25519 signature on EVERY request to /interactions using the RAW body (express.raw on that route only). Never parse JSON before verifying. Return 401 on failure. Answer type 1 PING with {type:1}.
+- Dedup: interactions.id (Discord interaction id) is the primary key. Insert with Prisma `skipDuplicates` (or equivalent unique conflict handling); if no row was inserted, do not re-run side effects.
+- Persist the interaction BEFORE any side effect. Side effects (reply follow-up, mirror, AI) are rows in the actions table with status, attempts, last_error, next_retry_at. Failures retry with exponential backoff; nothing is silently dropped.
+- Respond within 3 seconds. For slow work return a deferred response (type 5), then PATCH the original response via the interaction webhook.
+- Secrets (bot token, public key, webhook URLs, JWT secret, DB URL) come only from env vars, are never logged, never returned by any API. Webhook URLs are write-only; APIs expose only a boolean "mirrorConfigured".
+- Prisma only for data access. Do not interpolate user input into `$queryRaw` / `$executeRaw`; use tagged-template parameters if raw SQL is unavoidable. Validate all inputs with zod.
+- No business logic in route handlers; use services. Small single-purpose modules.
+- Follow docs/api-contract.md exactly.
+- Explain any non-obvious decision in a short code comment.
+- Build only the step I ask for. Do not add extra features.
