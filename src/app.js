@@ -3,6 +3,9 @@ import { logger } from './lib/logger.js';
 import { healthRouter } from './routes/health.js';
 import { interactionsRouter } from './routes/interactions.js';
 import { internalRouter } from './routes/internal.js';
+import { authRouter } from './routes/auth.js';
+import { statsRouter } from './routes/stats.js';
+import { interactionsApiRouter } from './routes/interactionsApi.js';
 
 export function createApp() {
   const app = express();
@@ -10,6 +13,12 @@ export function createApp() {
   app.disable('x-powered-by');
   app.use('/health', healthRouter);
   app.use('/interactions', interactionsRouter);
+
+  app.use('/api', express.json());
+
+  app.use('/api/auth', authRouter);
+  app.use('/api/stats', statsRouter);
+  app.use('/api/interactions', interactionsApiRouter);
   app.use('/api/internal', internalRouter);
 
   app.use((error, _req, res, _next) => {
