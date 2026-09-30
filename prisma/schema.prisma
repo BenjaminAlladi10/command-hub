@@ -38,12 +38,12 @@ model User {
 }
 
 model Guild {
-  guildId        String   @id
+  guildId        String          @id
   name           String
   channelId      String?
-  channels       Json     @default("[]")
+  channels       Json            @default("[]")
   mirrorWebhook  String?
-  connectedAt    DateTime @default(now())
+  connectedAt    DateTime        @default(now())
   commandConfigs CommandConfig[]
 
   @@map("guilds")
@@ -64,18 +64,20 @@ model CommandConfig {
 }
 
 model Interaction {
-  id         String             @id
-  guildId    String
-  guildName  String
-  userId     String
-  username   String
-  command    String
-  text       String
-  status     InteractionStatus  @default(received)
-  receivedAt DateTime           @default(now())
-  aiSummary  String?
-  aiTags     String[]           @default([])
-  actions    Action[]
+  id               String            @id
+  guildId          String
+  guildName        String
+  userId           String
+  username         String
+  command          String
+  text             String
+  interactionToken String?
+  tokenExpiresAt   DateTime?
+  status           InteractionStatus @default(received)
+  receivedAt       DateTime          @default(now())
+  aiSummary        String?
+  aiTags           String[]          @default([])
+  actions          Action[]
 
   @@index([guildId, receivedAt])
   @@index([command])
@@ -91,6 +93,7 @@ model Action {
   attempts      Int          @default(0)
   lastError     String?
   nextRetryAt   DateTime?
+  payload       String?
   updatedAt     DateTime     @updatedAt
   interaction   Interaction  @relation(fields: [interactionId], references: [id], onDelete: Cascade)
 

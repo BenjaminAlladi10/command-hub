@@ -10,12 +10,14 @@ import {
   applyCommandRules,
 } from './ruleService.js';
 
+import { env } from '../config/env.js';
 import { sendMirrorNotification } from './mirrorService.js';
 
-import { env } from '../config/env.js';
+function getInitialRetryTime() {
+  return new Date(Date.now() + 30 * 1000);
+}
 
 export async function buildInteractionResponse(interaction) {
-  // Discord endpoint verification
   if (interaction.type === InteractionType.PING) {
     return {
       type: InteractionResponseType.PONG,
@@ -31,12 +33,10 @@ export async function buildInteractionResponse(interaction) {
     };
   }
 
-  // Process everything after Discord has been acknowledged.
   processInteraction(interaction).catch((error) => {
     console.error('Failed to process interaction:', error);
   });
 
-  // Tell Discord immediately that we are processing the command.
   return {
     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
   };
@@ -57,7 +57,6 @@ async function processInteraction(interaction) {
         ? 'Hello! Command Hub is working 🚀'
         : '';
 
-  // Get/create configuration.
   const config = await getCommandConfig(
     guildId,
     guildName,
@@ -74,7 +73,6 @@ async function processInteraction(interaction) {
     useAiTriage: config.useAiTriage,
   });
 
-  // Apply rules.
   const result = applyCommandRules(config, text);
 
   console.log('Command rule result:', {
@@ -84,7 +82,6 @@ async function processInteraction(interaction) {
     matchedKeywords: result.matchedKeywords,
   });
 
-  // Persist interaction.
   const userId =
     interaction.member?.user?.id ??
     interaction.user?.id ??
@@ -95,6 +92,12 @@ async function processInteraction(interaction) {
     interaction.user?.username ??
     'unknown';
 
+  /*
+   * Create the interaction and its reply action.
+   *
+   * The reply action starts as PENDING because
+   * the Discord follow-up has not been sent yet.
+   */
   await prisma.interaction.upsert({
     where: {
       id: interaction.id,
@@ -108,23 +111,114 @@ async function processInteraction(interaction) {
       username,
       command: command ?? 'unknown',
       text,
-      status: 'replied',
+
+      // Needed if we have to retry the Discord response.
+      interactionToken: interaction.token,
+
+      // Discord interaction tokens are temporary.
+      tokenExpiresAt: new Date(
+        Date.now() + 15 * 60 * 1000,
+      ),
+
+      status: 'received',
+
       actions: {
         create: {
           kind: 'reply',
-          status: 'success',
-          attempts: 1,
+          status: 'pending',
+          payload: result.reply,
         },
       },
     },
   });
 
-  // Send the actual configured response.
-  await sendFollowUp(
-    interaction.token,
-    result.reply,
-  );
-  
+  /*
+   * Find the reply action.
+   */
+  const replyAction = await prisma.action.findFirst({
+    where: {
+      interactionId: interaction.id,
+      kind: 'reply',
+    },
+    orderBy: {
+      updatedAt: 'desc',
+    },
+  });
+
+  if (!replyAction) {
+    throw new Error('Reply action was not created');
+  }
+
+  /*
+   * Attempt to send the Discord response.
+   */
+  try {
+    await prisma.action.update({
+      where: {
+        id: replyAction.id,
+      },
+      data: {
+        attempts: {
+          increment: 1,
+        },
+      },
+    });
+
+    await sendFollowUp(
+      interaction.token,
+      result.reply,
+    );
+
+    /*
+     * Discord response succeeded.
+     */
+    await prisma.action.update({
+      where: {
+        id: replyAction.id,
+      },
+      data: {
+        status: 'success',
+        lastError: null,
+      },
+    });
+
+    await prisma.interaction.update({
+      where: {
+        id: interaction.id,
+      },
+      data: {
+        status: 'replied',
+      },
+    });
+  } catch (error) {
+    /*
+     * Discord response failed.
+     */
+    await prisma.action.update({
+      where: { id: replyAction.id },
+      data: {
+        status: 'failed',
+        lastError:
+          error instanceof Error ? error.message : 'Unknown reply error',
+        nextRetryAt: new Date(Date.now() + 30 * 1000),
+      },
+    });
+
+    await prisma.interaction.update({
+      where: {
+        id: interaction.id,
+      },
+      data: {
+        status: 'failed',
+      },
+    });
+
+    throw error;
+  }
+
+  /*
+   * Mirror notification.
+   */
   if (config.mirror) {
     await mirrorInteraction(
       guildId,
@@ -157,7 +251,11 @@ async function sendFollowUp(token, content) {
   }
 }
 
-async function mirrorInteraction(guildId, interactionId, content) {
+async function mirrorInteraction(
+  guildId,
+  interactionId,
+  content,
+) {
   const guild = await prisma.guild.findUnique({
     where: {
       guildId,
@@ -168,7 +266,9 @@ async function mirrorInteraction(guildId, interactionId, content) {
   });
 
   if (!guild?.mirrorWebhook) {
-    throw new Error('Mirror is enabled but webhook is not configured');
+    throw new Error(
+      'Mirror is enabled but webhook is not configured',
+    );
   }
 
   const action = await prisma.action.create({
@@ -176,10 +276,22 @@ async function mirrorInteraction(guildId, interactionId, content) {
       interactionId,
       kind: 'mirror',
       status: 'pending',
+      payload: content,
     },
   });
 
   try {
+    await prisma.action.update({
+      where: {
+        id: action.id,
+      },
+      data: {
+        attempts: {
+          increment: 1,
+        },
+      },
+    });
+
     await sendMirrorNotification(
       guild.mirrorWebhook,
       content,
@@ -191,21 +303,17 @@ async function mirrorInteraction(guildId, interactionId, content) {
       },
       data: {
         status: 'success',
-        attempts: 1,
+        lastError: null,
       },
     });
   } catch (error) {
     await prisma.action.update({
-      where: {
-        id: action.id,
-      },
+      where: { id: action.id },
       data: {
         status: 'failed',
-        attempts: 1,
         lastError:
-          error instanceof Error
-            ? error.message
-            : 'Unknown mirror error',
+          error instanceof Error ? error.message : 'Unknown mirror error',
+        nextRetryAt: new Date(Date.now() + 30 * 1000),
       },
     });
 

@@ -18,6 +18,7 @@ const envSchema = z.object({
   DISCORD_BOT_TOKEN: z.string().trim().min(1),
   DATABASE_URL: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
   DIRECT_URL: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
+  CRON_SECRET: z.string().trim().min(1),
 });
 
 function formatEnvErrors(error) {
