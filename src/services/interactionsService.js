@@ -10,6 +10,8 @@ import {
   applyCommandRules,
 } from './ruleService.js';
 
+import { sendMirrorNotification } from './mirrorService.js';
+
 import { env } from '../config/env.js';
 
 export async function buildInteractionResponse(interaction) {
@@ -122,6 +124,14 @@ async function processInteraction(interaction) {
     interaction.token,
     result.reply,
   );
+  
+  if (config.mirror) {
+    await mirrorInteraction(
+      guildId,
+      interaction.id,
+      result.reply,
+    );
+  }
 }
 
 async function sendFollowUp(token, content) {
@@ -144,5 +154,61 @@ async function sendFollowUp(token, content) {
     throw new Error(
       `Discord follow-up failed: ${response.status} ${body}`,
     );
+  }
+}
+
+async function mirrorInteraction(guildId, interactionId, content) {
+  const guild = await prisma.guild.findUnique({
+    where: {
+      guildId,
+    },
+    select: {
+      mirrorWebhook: true,
+    },
+  });
+
+  if (!guild?.mirrorWebhook) {
+    throw new Error('Mirror is enabled but webhook is not configured');
+  }
+
+  const action = await prisma.action.create({
+    data: {
+      interactionId,
+      kind: 'mirror',
+      status: 'pending',
+    },
+  });
+
+  try {
+    await sendMirrorNotification(
+      guild.mirrorWebhook,
+      content,
+    );
+
+    await prisma.action.update({
+      where: {
+        id: action.id,
+      },
+      data: {
+        status: 'success',
+        attempts: 1,
+      },
+    });
+  } catch (error) {
+    await prisma.action.update({
+      where: {
+        id: action.id,
+      },
+      data: {
+        status: 'failed',
+        attempts: 1,
+        lastError:
+          error instanceof Error
+            ? error.message
+            : 'Unknown mirror error',
+      },
+    });
+
+    throw error;
   }
 }
