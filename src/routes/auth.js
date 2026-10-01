@@ -12,7 +12,7 @@ export const authRouter = Router();
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
+  sameSite: 'none',
   path: '/',
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
@@ -94,7 +94,7 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
     res.clearCookie(COOKIE_NAME, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'none',
       path: '/',
     });
 
