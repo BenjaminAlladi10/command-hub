@@ -8,9 +8,17 @@ import { statsRouter } from './routes/stats.js';
 import { interactionsApiRouter } from './routes/interactionsApi.js';
 import { commandsRouter } from './routes/commands.js';
 import { guildsRouter } from './routes/guilds.js';
+import cors from "cors";
 
 export function createApp() {
   const app = express();
+
+  app.use(
+    cors({
+      origin: true,
+      credentials: true,
+    }),
+  );
 
   app.disable('x-powered-by');
   app.use('/health', healthRouter);

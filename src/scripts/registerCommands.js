@@ -37,6 +37,3 @@ if (!response.ok) {
   console.error('Failed to register commands:', response.status, body);
   process.exit(1);
 }
-
-console.log('Commands registered successfully:');
-console.log(body);

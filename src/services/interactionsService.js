@@ -63,24 +63,7 @@ async function processInteraction(interaction) {
     command,
   );
 
-  console.log('Loaded command config:', {
-    guildId,
-    command,
-    enabled: config.enabled,
-    replyTemplate: config.replyTemplate,
-    flagKeywords: config.flagKeywords,
-    mirror: config.mirror,
-    useAiTriage: config.useAiTriage,
-  });
-
   const result = applyCommandRules(config, text);
-
-  console.log('Command rule result:', {
-    command,
-    enabled: result.enabled,
-    flagged: result.flagged,
-    matchedKeywords: result.matchedKeywords,
-  });
 
   const userId =
     interaction.member?.user?.id ??
